@@ -82,12 +82,7 @@
 #  endif
 #endif
 
-#if defined(ESP8266) || defined(ESP32) // for nodemcu, weemos and esp8266
 //#  define ESPWifiManualSetup true //uncomment you don't want to use wifimanager for your credential settings on ESP
-#else // for arduino boards
-const byte ip[] = {192, 168, 1, 99};
-const byte mac[] = {0xDE, 0xED, 0xBA, 0xFE, 0x54, 0x95}; //W5100 ethernet shield MAC address
-#endif
 
 //#define ESP32_ETHERNET=true // Uncomment to use Ethernet module on ESP32 Ethernet gateway and adapt the settings to your board below, the default parameter are for OLIMEX ESP32 gateway
 #ifdef ESP32_ETHERNET
@@ -217,6 +212,8 @@ const byte mac[] = {0xDE, 0xED, 0xBA, 0xFE, 0x54, 0x95}; //W5100 ethernet shield
 #  define AWS_IOT false
 #endif
 
+#define GITHUB_OTA_SERVER_CERT_HASH "d4d211b4553af9fac371f24c2268d59d2b0fec6b9aa0fdbbde068f078d7daf86" // SHA256 fingerprint of the certificate used by the OTA server
+
 #if AWS_IOT
 // Enable the use of ALPN for AWS IoT Core with the port 443
 const char* alpnProtocols[] = {"x-amzn-mqtt-ca", NULL};
@@ -236,13 +233,13 @@ const char* alpnProtocols[] = {"x-amzn-mqtt-ca", NULL};
 #    define MQTT_HTTPS_FW_UPDATE_USE_PASSWORD 1 // Set this to 0 if not using TLS connection to MQTT broker to prevent clear text passwords being sent.
 #  endif
 #  if DEVELOPMENTOTA
-#    define OTA_JSON_URL "https://github.com/1technophile/OpenMQTTGateway/raw/gh-pages/dev/firmware_build/latest_version_dev.json" //OTA url used to discover new versions of the firmware from development nightly builds
+#    define OTA_JSON_URL "https://ota.openmqttgateway.com/binaries/dev/latest_version_dev.json" //OTA url used to discover new versions of the firmware from development nightly builds
 #  else
-#    define OTA_JSON_URL "https://github.com/1technophile/OpenMQTTGateway/raw/gh-pages/firmware_build/latest_version.json" //OTA url used to discover new versions of the firmware
+#    define OTA_JSON_URL "https://ota.openmqttgateway.com/binaries/latest_version.json" //OTA url used to discover new versions of the firmware
 #  endif
 #  define ENTITY_PICTURE   "https://github.com/1technophile/OpenMQTTGateway/raw/development/docs/img/Openmqttgateway_logo_mini_margins.png"
-#  define RELEASE_LINK_DEV "https://github.com/1technophile/OpenMQTTGateway/raw/gh-pages/dev/firmware_build/"
-#  define RELEASE_LINK     "https://github.com/1technophile/OpenMQTTGateway/releases/download/"
+#  define RELEASE_LINK_DEV "https://ota.openmqttgateway.com/binaries/dev/"
+#  define RELEASE_LINK     "https://ota.openmqttgateway.com/binaries/"
 #else
 const char* OTAserver_cert = "";
 #endif
@@ -287,7 +284,7 @@ struct ss_cnt_parameters {
 #define cnt_parameters_array_size 3
 
 ss_cnt_parameters cnt_parameters_array[cnt_parameters_array_size] = {
-    {ss_server_cert, ss_client_cert, ss_client_key, OTAserver_cert, MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASS, MQTT_SECURE_DEFAULT, MQTT_CERT_VALIDATE_DEFAULT, true},
+    {ss_server_cert, ss_client_cert, ss_client_key, OTAserver_cert, MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASS, MQTT_SECURE_DEFAULT, MQTT_CERT_VALIDATE_DEFAULT, false},
     {"", "", "", "", MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASS, MQTT_SECURE_DEFAULT, MQTT_CERT_VALIDATE_DEFAULT, false},
     {"", "", "", "", MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASS, MQTT_SECURE_DEFAULT, MQTT_CERT_VALIDATE_DEFAULT, false}};
 

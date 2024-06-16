@@ -446,10 +446,28 @@ bool handleJsonEnqueue(const StaticJsonDocument<JSON_MSG_BUFFER_MAX>& jsonDoc, i
     return false;
   }
 }
+
+#  include "mbedtls/sha256.h"
+
+std::string generateHash(const std::string& input) {
+  unsigned char hash[32];
+  mbedtls_sha256((unsigned char*)input.c_str(), input.length(), hash, 0);
+
+  char hashString[65]; // Room for null terminator
+  for (int i = 0; i < 32; ++i) {
+    sprintf(&hashString[i * 2], "%02x", hash[i]);
+  }
+
+  return std::string(hashString);
+}
 #else
 bool handleJsonEnqueue(const StaticJsonDocument<JSON_MSG_BUFFER>& jsonDoc, int timeout) {
   enqueueJsonObject(jsonDoc);
   return true;
+}
+
+std::string generateHash(const std::string& input) {
+  return "Not implemented for ESP8266";
 }
 #endif
 
@@ -1134,6 +1152,12 @@ void setup() {
 #  ifdef ESP32_ETHERNET
     setup_ethernet_esp32();
 #  endif
+
+#  if SELF_TEST
+    // Check serial input to trigger a Self Test sequence if required
+    checkSerial();
+#  endif
+
     Log.notice(F("No config in flash, launching wifi manager" CR));
     // In failSafeMode we don't want to setup wifi manager as it has already been done before
     if (!failSafeMode) setupwifi(false);
@@ -1507,6 +1531,7 @@ void setupTLS(int index) {
   6 - OTA Update
   7 - Parameters changed
   8 - not enough memory to pursue
+  9 - SELFTEST end
 */
 void ESPRestart(byte reason) {
   delay(1000);
@@ -1798,7 +1823,20 @@ bool loadConfigFromFlash() {
           strcpy(key, "ota_server_cert");
           strcat(key, index_suffix);
           if (json.containsKey(key)) {
-            cnt_parameters_array[i].ota_server_cert = json[key].as<const char*>();
+#  ifdef ESP32
+            // Read hash from the file
+            std::string hash = generateHash(json["ota_server_cert"]);
+            // Compare the hash with the expected hash
+            if (hash == GITHUB_OTA_SERVER_CERT_HASH) {
+              // Do nothing
+              Log.warning(F("Old Github OTA server detected, skipping" CR));
+            } else {
+              Log.notice(F("OTA server cert hash: %s" CR), hash.c_str());
+              cnt_parameters_array[i].ota_server_cert = json["ota_server_cert"].as<const char*>();
+            }
+#  else
+            cnt_parameters_array[i].ota_server_cert = json["ota_server_cert"].as<const char*>();
+#  endif
           }
           strcpy(key, "mqtt_server");
           strcat(key, index_suffix);
@@ -1834,6 +1872,9 @@ bool loadConfigFromFlash() {
           strcat(key, index_suffix);
           if (json.containsKey(key)) {
             cnt_parameters_array[i].validConnection = json[key].as<bool>();
+          } else {
+            // For backward compatibility, if valid_cnt is not found, we assume the connection is valid
+            cnt_parameters_array[i].validConnection = true;
           }
         }
         if (json.containsKey("cnt_index")) {
@@ -1862,7 +1903,7 @@ bool loadConfigFromFlash() {
       configFile.close();
     }
   } else {
-    Log.notice(F("no config file found defining default values" CR));
+    Log.notice(F("No config file found defining default values" CR));
 #  ifdef USE_MAC_AS_GATEWAY_NAME
     String s = WiFi.macAddress();
     sprintf(gateway_name, "%.2s%.2s%.2s%.2s%.2s%.2s",
@@ -1896,7 +1937,6 @@ void setupwifi(bool reset_settings) {
   // The extra parameters to be configured (can be either global or just in the setup)
   // After connecting, parameter.getValue() will get you the configured value
   // id/name placeholder/prompt default
-  // Index of connection parameters is 1 for onboarding parameters
 #  ifndef WIFIMNG_HIDE_MQTT_CONFIG
   WiFiManagerParameter custom_mqtt_server("server", "mqtt server", cnt_parameters_array[CNT_DEFAULT_INDEX].mqtt_server, parameters_size, " minlength='1' maxlength='64' required");
   WiFiManagerParameter custom_mqtt_port("port", "mqtt port", cnt_parameters_array[CNT_DEFAULT_INDEX].mqtt_port, 6, " minlength='1' maxlength='5' required");
@@ -1907,11 +1947,11 @@ void setupwifi(bool reset_settings) {
   WiFiManagerParameter custom_ota_pass("ota", "gateway password", ota_pass, parameters_size, " input type='password' minlength='8' maxlength='64' required");
   WiFiManagerParameter custom_mqtt_secure("secure", "<br/>mqtt secure", "1", 2, cnt_parameters_array[CNT_DEFAULT_INDEX].isConnectionSecure ? "type=\"checkbox\" checked" : "type=\"checkbox\"");
   WiFiManagerParameter custom_validate_cert("validate", "<br/>validate cert", "1", 2, cnt_parameters_array[CNT_DEFAULT_INDEX].isCertValidate ? "type=\"checkbox\" checked" : "type=\"checkbox\"");
-  WiFiManagerParameter custom_mqtt_cert("cert", "<br/>mqtt server cert", cnt_parameters_array[CNT_DEFAULT_INDEX].server_cert.c_str(), 4096);
-  WiFiManagerParameter custom_ota_server_cert("ota_cert", "<br/>ota server cert", cnt_parameters_array[CNT_DEFAULT_INDEX].ota_server_cert.c_str(), 4096);
+  WiFiManagerParameter custom_mqtt_cert("cert", "<br/>mqtt server cert", "", 4096);
+  WiFiManagerParameter custom_ota_server_cert("ota_cert", "<br/>ota server cert", "", 4096);
 #    if MQTT_SECURE_SIGNED_CLIENT
-  WiFiManagerParameter custom_client_cert("client_cert", "<br/>mqtt client cert", cnt_parameters_array[CNT_DEFAULT_INDEX].client_cert.c_str(), 4096);
-  WiFiManagerParameter custom_client_key("client_key", "<br/>mqtt client key", cnt_parameters_array[CNT_DEFAULT_INDEX].client_key.c_str(), 4096);
+  WiFiManagerParameter custom_client_cert("client_cert", "<br/>mqtt client cert", "", 4096);
+  WiFiManagerParameter custom_client_key("client_key", "<br/>mqtt client key", "", 4096);
 #    endif
 #  endif
   //WiFiManager
@@ -2025,7 +2065,7 @@ void setupwifi(bool reset_settings) {
 
   if (shouldSaveConfig) {
     //read updated parameters
-    cnt_index = 1;
+    cnt_index = CNT_DEFAULT_INDEX;
 #  ifndef WIFIMNG_HIDE_MQTT_CONFIG
     strcpy(cnt_parameters_array[cnt_index].mqtt_server, custom_mqtt_server.getValue());
     strcpy(cnt_parameters_array[cnt_index].mqtt_port, custom_mqtt_port.getValue());
@@ -2044,13 +2084,23 @@ void setupwifi(bool reset_settings) {
     strcpy(ota_pass, custom_ota_pass.getValue());
     cnt_parameters_array[cnt_index].isConnectionSecure = *custom_mqtt_secure.getValue();
     cnt_parameters_array[cnt_index].isCertValidate = *custom_validate_cert.getValue();
-    cnt_parameters_array[cnt_index].server_cert = processCert(custom_mqtt_cert.getValue());
-    cnt_parameters_array[cnt_index].ota_server_cert = processCert(custom_ota_server_cert.getValue());
+    if (strlen(custom_mqtt_cert.getValue()) > MIN_CERT_LENGTH) {
+      cnt_parameters_array[cnt_index].server_cert = processCert(custom_mqtt_cert.getValue());
+    }
+    if (strlen(custom_ota_server_cert.getValue()) > MIN_CERT_LENGTH) {
+      cnt_parameters_array[cnt_index].ota_server_cert = processCert(custom_ota_server_cert.getValue());
+    }
 #    if MQTT_SECURE_SIGNED_CLIENT
-    cnt_parameters_array[cnt_index].client_cert = processCert(custom_client_cert.getValue());
-    cnt_parameters_array[cnt_index].client_key = processCert(custom_client_key.getValue());
+    if (strlen(custom_client_cert.getValue()) > MIN_CERT_LENGTH) {
+      cnt_parameters_array[cnt_index].client_cert = processCert(custom_client_cert.getValue());
+    }
+    if (strlen(custom_client_key.getValue()) > MIN_CERT_LENGTH) {
+      cnt_parameters_array[cnt_index].client_key = processCert(custom_client_key.getValue());
+    }
 #    endif
 #  endif
+    // We suppose the connection is valid (could be tested before)
+    cnt_parameters_array[cnt_index].validConnection = true;
 
     //save the custom parameters to FS
     saveConfig();
@@ -2074,14 +2124,21 @@ void setup_ethernet_esp32() {
   ETH.config(ip, gateway, subnet, Dns);
   ethBeginSuccess = ETH.begin();
 #    else
-  Log.trace(F("Spl eth cfg" CR));
+  Log.notice(F("Spl eth cfg" CR));
   ethBeginSuccess = ETH.begin();
 #    endif
-  Log.trace(F("Connecting to Ethernet" CR));
-  while (!ethConnected && failure_number_ntwk <= maxConnectionRetryNetwork) {
-    delay(500);
-    Log.trace(F("." CR));
-    failure_number_ntwk++;
+  if (ethBeginSuccess) {
+    Log.notice(F("Ethernet started" CR));
+    Log.notice(F("OpenMQTTGateway MAC: %s" CR), ETH.macAddress().c_str());
+    Log.notice(F("OpenMQTTGateway IP: %s" CR), ETH.localIP().toString().c_str());
+    Log.notice(F("OpenMQTTGateway link speed: %d Mbps" CR), ETH.linkSpeed());
+    while (!ethConnected && failure_number_ntwk <= maxConnectionRetryNetwork) {
+      delay(500);
+      Log.notice(F("." CR));
+      failure_number_ntwk++;
+    }
+  } else {
+    Log.error(F("Ethernet not started" CR));
   }
 }
 
@@ -2765,7 +2822,17 @@ bool checkForUpdates() {
   HTTPClient http;
   http.setTimeout((GeneralTimeOut - 1) * 1000); // -1 to avoid WDT
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.begin(OTA_JSON_URL, OTAserver_cert);
+
+  std::string ota_cert;
+  if (cnt_parameters_array[cnt_index].ota_server_cert.length() > MIN_CERT_LENGTH) {
+    Log.notice(F("Using memory cert" CR));
+    ota_cert = cnt_parameters_array[cnt_index].ota_server_cert;
+  } else {
+    Log.notice(F("Using config cert" CR));
+    ota_cert = OTAserver_cert;
+  }
+
+  http.begin(OTA_JSON_URL, ota_cert.c_str());
   int httpCode = http.GET();
   StaticJsonDocument<JSON_MSG_BUFFER> jsonBuffer;
   JsonObject jsondata = jsonBuffer.to<JsonObject>();
@@ -2953,25 +3020,6 @@ void MQTTHttpsFWUpdate(char* topicOri, JsonObject& HttpsFwUpdateData) {
 }
 #endif
 
-#ifdef ESP32
-#  include "mbedtls/sha256.h"
-
-std::string generateHash(const std::string& input) {
-  unsigned char hash[32];
-  mbedtls_sha256((unsigned char*)input.c_str(), input.length(), hash, 0);
-
-  char hashString[65]; // Room for null terminator
-  for (int i = 0; i < 32; ++i) {
-    sprintf(&hashString[i * 2], "%02x", hash[i]);
-  }
-
-  return std::string(hashString);
-}
-#else
-std::string generateHash(const std::string& input) {
-  return "Not implemented for ESP8266";
-}
-#endif
 /**
  * Read the certificates from the memory and publish a hash of the cert to the broker for identification purposes
 */

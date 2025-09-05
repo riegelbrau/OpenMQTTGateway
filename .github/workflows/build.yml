@@ -37,6 +37,7 @@ jobs:
           - "esp32-m5atom-matrix"
           - "esp32-m5atom-lite"
           - "esp32dev-rtl_433"
+          - "esp32dev-rtl_433-fsk"
           - "esp32doitv1-aithinker-r01-sx1278"
           - "heltec-rtl_433"
           - "heltec-rtl_433-fsk"
@@ -56,7 +57,7 @@ jobs:
           - "nodemcuv2-fastled-test"
           - "nodemcuv2-2g"
           - "nodemcuv2-ir"
-          - "nodemcuv2-rs232"
+          - "nodemcuv2-serial"
           - "avatto-bakeey-ir"
           - "nodemcuv2-rf"
           - "nodemcuv2-rf-cc1101"
@@ -79,14 +80,20 @@ jobs:
           - "theengs-bridge"
           - "esp32dev-ble-idf"
           - "theengs-bridge-v11"
+          - "theengs-plug"
+          - "esp32dev-ble-broker"
+          - "esp32s3-m5stack-stamps3"
+          - "esp32c3u-m5stamp"
+          - "lilygo-t3-s3-rtl_433"
+          - "lilygo-t3-s3-rtl_433-fsk"
     runs-on: ubuntu-latest
     name: Build with PlatformIO
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.11"
       - name: Install platformio
         run: |
           python -m pip install --upgrade pip
@@ -99,7 +106,7 @@ jobs:
       - name: Run PlatformIO
         run: platformio run -e ${{ matrix.environments }}
       - name: Upload Assets
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.environments }}
           path: |
@@ -111,9 +118,9 @@ jobs:
     runs-on: ubuntu-latest
     name: Create the documentation
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: "14.x"
       - name: Download Common Config
